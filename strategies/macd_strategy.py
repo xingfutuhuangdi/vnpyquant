@@ -20,8 +20,11 @@ class MACDStrategy(CtaTemplate):
     author = "用Python的交易员"
 
     macd_window: int = 50
+    pre_element:int = -4
+    vol:int = 10
 
-    parameters = ["macd_window"]
+
+    parameters = ["macd_window", "pre_element", "vol"]
     variables = []
 
     def on_init(self) -> None:
@@ -67,28 +70,29 @@ class MACDStrategy(CtaTemplate):
         if not am.inited:
             return
         
-        pre = -4
+        pre = self.pre_element
+        #macd=diff,signal=dea,hist
         macd, signal, hist = am.macd(fast_period = 12, slow_period = 26, signal_period = 9, array = True) 
 
-        is_positive:bool = macd[pre] > 0 and signal[pre] > 0 and macd[-1] > 0 and signal[-1] > 0
-        is_negative:bool = macd[pre] < 0 and signal[pre] < 0 and macd[-1] < 0 and signal[-1] < 0
+        is_positive:bool =  macd[-1] > 0 and signal[-1] > 0
+        is_negative:bool =  macd[-1] < 0 and signal[-1] < 0
 
-        cross_over: bool = hist[-1] > 0 and (macd[pre] < signal[pre] and macd[-1] > signal[-1])
-        cross_below: bool = hist[-1] < 0 and macd[pre] > signal[pre] and macd[-1] < signal[-1]
+        cross_over: bool = hist[pre] < 0 and hist[-1] > 0 and macd[pre] <= signal[pre] and macd[-1] > signal[-1]
+        cross_below: bool = hist[pre] > 0 and hist[-1] < 0 and macd[pre] >= signal[pre] and macd[-1] < signal[-1]
 
         if is_positive and cross_over:
             if self.pos == 0:
-                self.buy(bar.close_price, 1)
+                self.buy(bar.close_price, self.vol)
             elif self.pos < 0:
-                self.cover(bar.close_price, 1)
-                self.buy(bar.close_price, 1)
+                self.cover(bar.close_price, self.vol)
+                self.buy(bar.close_price, self.vol)
 
         elif is_negative and cross_below:
             if self.pos == 0:
-                self.short(bar.close_price, 1)
+                self.short(bar.close_price, self.vol)
             elif self.pos > 0:
-                self.sell(bar.close_price, 1)
-                self.short(bar.close_price, 1)
+                self.sell(bar.close_price, self.vol)
+                self.short(bar.close_price, self.vol)
 
         self.put_event()
 
