@@ -8,6 +8,9 @@ from vnpy_ctastrategy import CtaStrategyApp
 from vnpy_ctabacktester import CtaBacktesterApp
 from vnpy_datamanager import DataManagerApp
 
+# import sys
+# sys.path.append('D:/workspace/wk/quant/VeighNa/vnpyquant/')
+
 def main():
     """Start VeighNa Trader"""
     qapp = create_qapp()
