@@ -32,10 +32,13 @@ class ZigzagStrategy(CtaTemplate):
 
     macd_window: int = 50
     pre_element:int = -4
-    vol:int = 10
+    #周期数量
+    period:int = 37
+    #zigzag的波峰长度
+    legs:int = 5
 
 
-    parameters = ["macd_window", "pre_element", "vol"]
+    parameters = ["macd_window", "pre_element", "period", "legs"]
     variables = []
 
     def on_init(self) -> None:
@@ -47,7 +50,7 @@ class ZigzagStrategy(CtaTemplate):
         self.bg: BarGenerator = BarGenerator(self.on_bar)
         self.am: ArrayManager = ArrayManager()
 
-        self.load_bar(10)
+        self.load_bar(self.period)
 
     def on_start(self) -> None:
         """
@@ -85,20 +88,31 @@ class ZigzagStrategy(CtaTemplate):
         #macd=diff,signal=dea,hist
         macd, signal, hist = am.macd(fast_period = 12, slow_period = 26, signal_period = 9, array = True) 
 
-        is_positive:bool =  macd[-1] > 0 and signal[-1] > 0
-        is_negative:bool =  macd[-1] < 0 and signal[-1] < 0
+        #波谷重合，按照序号顺序，交替出现，用于后门算法判断
+        zigzag, max_val, min_val = self.getZigzag(legs= self.legs, period = self.period)
+        if zigzag.size == 0:
+            return 
+        # print(context.now)
+        dir, joinpoint, stoppoint = self.isBuy(am.close_array, zigzag, bar.close_price, max_val, min_val)
+        if dir == 1:
+            self.stoppoint_buy = stoppoint
+        elif dir == 2:
+            self.stoppoint_sell = stoppoint
+        
+        #做多
+        is_positive = (dir == 1 and macd.iloc[-1] > 0)
+        #做空
+        is_negative = (dir == 2 and macd.iloc[-1] < 0)
 
-        cross_over: bool = hist[pre] < 0 and hist[-1] > 0 and macd[pre] <= signal[pre] and macd[-1] > signal[-1]
-        cross_below: bool = hist[pre] > 0 and hist[-1] < 0 and macd[pre] >= signal[pre] and macd[-1] < signal[-1]
-
-        if is_positive and cross_over:
+        if is_positive:
             if self.pos == 0:
                 self.buy(bar.close_price, self.vol)
+                self.stoploss_long = bar.close_price
             elif self.pos < 0:
                 self.cover(bar.close_price, self.vol)
                 self.buy(bar.close_price, self.vol)
 
-        elif is_negative and cross_below:
+        elif is_negative:
             if self.pos == 0:
                 self.short(bar.close_price, self.vol)
             elif self.pos > 0:
@@ -126,24 +140,22 @@ class ZigzagStrategy(CtaTemplate):
         pass
 
     # find points
-def find_swings(self, prices, order=5, period=300):
-
-    # 计算 ZigZag 指标（默认偏差为 5%，10 段）
-    deviation = 0.1
-    zigzag = ta.zigzag(high=prices["high"], low=prices["low"], close=prices["close"], deviation=deviation, legs=order)
-
-    # plot_swings(prices, zigzag, "zigzag", deviation=deviation, legs= order)
-    
-    if zigzag.size > 0:
-        zigzag = zigzag.dropna()
-        # print(zigzag.to_string())
-        # print(type(zigzag.index))
-        # print(zigzag.index[-1])
-        # print(zigzag.iloc[:2])
-        colName = 'ZIGZAGv_{:.1f}%_{:d}'.format(deviation, order)
-        return zigzag, zigzag[colName].max(), zigzag[colName].min()
+    def getZigzag(self, legs=5, period=300):
+        am: ArrayManager = self.am
+        # 计算 ZigZag 指标（默认偏差为 5%，10 段）
+        deviation = 0.1
+        zigzag = ta.zigzag(high=am.high, low=am.low, close=am.close, deviation=deviation, legs=legs)
         
-    return zigzag, 0, 0
+        if zigzag.size > 0:
+            zigzag = zigzag.dropna()
+            # print(zigzag.to_string())
+            # print(type(zigzag.index))
+            # print(zigzag.index[-1])
+            # print(zigzag.iloc[:2])
+            colName = 'ZIGZAGv_{:.1f}%_{:d}'.format(deviation, legs)
+            return zigzag, zigzag[colName].max(), zigzag[colName].min()
+            
+        return zigzag, 0, 0
 
 
 #判断是上升波浪还是下降波浪,确定入场点
