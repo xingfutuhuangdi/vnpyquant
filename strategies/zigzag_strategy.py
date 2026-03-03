@@ -34,12 +34,12 @@ class ZigzagStrategy(CtaTemplate):
     #交易量
     vol:int = 10
     #周期数量
-    period:int = 37
+    period:int = 20
     #zigzag的波峰长度
-    legs:int = 5
+    legs:int = 10
 
 
-    parameters = ["macd_window", "period", "legs"]
+    parameters = ["period", "legs"]
     variables = []
 
     def on_init(self) -> None:
