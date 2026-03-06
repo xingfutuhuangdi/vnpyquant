@@ -93,18 +93,23 @@ class ZigzagStrategy(CtaTemplate):
         if not am.inited:
             return
         
-        
-        #持仓量小于1000，不操作,这种一般是在初期或末期出现
-        if bar.volume < 1000:
-            self.clearAll(bar.close_price)
-            return
 
-        #合约到期的前十天，全部清仓
+        # 合约交易最后一天
         expiry_date:date  = self.infer_expiry_date(self.vt_symbol)
         if not expiry_date:
             return
+        # 合约交易第一天
+        begin_date:date = date(expiry_date.year -1, month = expiry_date.month, day=expiry_date.day)
+
+        # 开盘时间
+        days_to_began = (bar.datetime.date() - begin_date).days
+        # 合约前期不活跃，不交易
+        if days_to_began < 60:
+            return
+
         # 计算剩余天数
         days_to_expiry = (expiry_date - bar.datetime.date()).days 
+        #合约到期的前7天，全部清仓
         if days_to_expiry < 7:
             # 接近到期时平仓
             self.clearAll(bar.close_price)
@@ -181,7 +186,7 @@ class ZigzagStrategy(CtaTemplate):
             am: ArrayManager = self.am
 
             zigzag:pd.DataFrame = ta.zigzag(high=pd.Series(am.high), low=pd.Series(am.low),  \
-                                            deviation=self.deviation, legs=legs, backtest=True)
+                                            deviation=self.deviation, legs=legs)
             
             if zigzag.empty == False and zigzag.size > 0:
                 zigzag = zigzag.dropna()
@@ -282,7 +287,8 @@ class ZigzagStrategy(CtaTemplate):
                 #打印
                 # print("继续做空，当前价格：{0}".format(current,stoppoint))
                 return 4,stoppoint
-            
+    
+    #只能算一个大概
     def infer_expiry_date(self, symbol):
         """从合约代码推断到期日期"""
         # 匹配合约代码中的年月信息
