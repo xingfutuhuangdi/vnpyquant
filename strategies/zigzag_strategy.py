@@ -87,9 +87,16 @@ class ZigzagStrategy(CtaTemplate):
         """
         self.cancel_all()
 
+
         am: ArrayManager = self.am
         am.update_bar(bar)
         if not am.inited:
+            return
+        
+        
+        #持仓量小于1000，不操作,这种一般是在初期或末期出现
+        if bar.volume < 1000:
+            self.clearAll(bar.close_price)
             return
 
         #合约到期的前十天，全部清仓
@@ -100,12 +107,7 @@ class ZigzagStrategy(CtaTemplate):
         days_to_expiry = (expiry_date - bar.datetime.date()).days 
         if days_to_expiry < 7:
             # 接近到期时平仓
-            if self.pos != 0:
-                if self.pos > 0:
-                    self.sell(bar.close_price - 5, abs(self.pos))
-                else:
-                    self.cover(bar.close_price + 5, abs(self.pos))
-                self.write_log(f"因临近到期平仓，剩余持仓: {self.pos}")
+            self.clearAll(bar.close_price)
             return
 
         #macd=diff,signal=dea,hist
@@ -163,25 +165,42 @@ class ZigzagStrategy(CtaTemplate):
         """
         pass
 
+    #清仓
+    def clearAll(self, close_price) -> None:
+        # 接近到期时平仓
+        if self.pos != 0:
+            if self.pos > 0:
+                self.sell(close_price - 5, abs(self.pos))
+            else:
+                self.cover(close_price + 5, abs(self.pos))
+            self.write_log(f"平仓，剩余持仓: {self.pos}")
+
     # find points
     def getZigzag(self, legs=5, period=300):
-        am: ArrayManager = self.am
+        try:
+            am: ArrayManager = self.am
 
-        print('pd')
-        print(am.high)
-        zigzag:pd.DataFrame = ta.zigzag(high=pd.Series(am.high), low=pd.Series(am.low), close=pd.Series(am.close), deviation=self.deviation, legs=legs)
-        
-        if zigzag.empty == False and zigzag.size > 0:
-            zigzag = zigzag.dropna()
-            print("zigzag", zigzag)
-            # print(zigzag.to_string())
-            # print(type(zigzag.index))
-            # print(zigzag.index[-1])
-            # print(zigzag.iloc[:2])
-            colName = 'ZIGZAGv_{:.1f}%_{:d}'.format(self.deviation, legs)
-            return zigzag, zigzag[colName].max(), zigzag[colName].min()
+            zigzag:pd.DataFrame = ta.zigzag(high=pd.Series(am.high), low=pd.Series(am.low),  \
+                                            deviation=self.deviation, legs=legs, backtest=True)
             
-        return zigzag, 0, 0
+            if zigzag.empty == False and zigzag.size > 0:
+                zigzag = zigzag.dropna()
+                print("zigzag", zigzag)
+                # print(zigzag.to_string())
+                # print(type(zigzag.index))
+                # print(zigzag.index[-1])
+                # print(zigzag.iloc[:2])
+                colName = 'ZIGZAGv_{:.1f}%_{:d}'.format(self.deviation, legs)
+                return zigzag, zigzag[colName].max(), zigzag[colName].min()
+            else:
+                return pd.DataFrame(), 0, 0
+        except ZeroDivisionError as e:
+            print(e)
+            return pd.DataFrame(), 0, 0
+        except Exception as e:
+            print(e)
+            return pd.DataFrame(), 0, 0
+
 
     #判断是上升波浪还是下降波浪,确定入场点
     #param
