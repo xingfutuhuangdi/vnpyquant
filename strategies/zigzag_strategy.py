@@ -39,13 +39,18 @@ class ZigzagStrategy(CtaTemplate):
     period:int = 20
     #zigzag的波峰长度
     legs:int = 10
+    #custom window
+    custom_window:int = 15
 
-    #策略变量
     # 计算 ZigZag 指标（默认偏差为 5%，10 段）
     deviation:float = 0.1
 
-    parameters = ["period", "legs", "deviation"]
-    variables = []
+    #策略变量
+    stoppoint_buy:float = 0
+    stoppoint_sell:float = 0
+
+    parameters = ["period", "legs", "deviation", "custom_window"]
+    variables = ["stoppoint_buy", "stoppoint_sell"]
 
     def on_init(self) -> None:
         """
@@ -55,6 +60,7 @@ class ZigzagStrategy(CtaTemplate):
         self.write_log(self.vt_symbol)
 
         self.bg: BarGenerator = BarGenerator(self.on_bar)
+
         self.am: ArrayManager = ArrayManager()
 
 
@@ -80,6 +86,7 @@ class ZigzagStrategy(CtaTemplate):
         Callback of new tick data update.
         """
         self.bg.update_tick(tick)
+    
 
     def on_bar(self, bar: BarData) -> None:
         """
@@ -135,6 +142,7 @@ class ZigzagStrategy(CtaTemplate):
         #做空
         is_negative = (dir == 2 and macd[-1] < 0)
 
+        #做多
         if is_positive:
             if self.pos == 0:
                 self.buy(bar.close_price, self.vol)
@@ -142,13 +150,25 @@ class ZigzagStrategy(CtaTemplate):
             elif self.pos < 0:
                 self.cover(bar.close_price, abs(self.pos))
                 self.buy(bar.close_price, self.vol)
-
+        #做空
         elif is_negative:
             if self.pos == 0:
                 self.short(bar.close_price, self.vol)
             elif self.pos > 0:
                 self.sell(bar.close_price, abs(self.pos))
                 self.short(bar.close_price, self.vol)
+
+        #止盈
+        if self.pos > 0:
+            #多仓止盈
+            state, self.stoppoint_buy = self.isStop(zigzag, self.stoppoint_buy, bar.close_price, 1)
+            if state == 1:
+                self.sell(bar.close_price, abs(self.pos))    
+        elif self.pos < 0:
+            #空仓止盈
+            state, self.stoppoint_sell = self.isStop(zigzag, self.stoppoint_sell, bar.close_price, 2)
+            if state == 3:
+                self.cover(bar.close_price, abs(self.pos))
 
         self.put_event()
 
