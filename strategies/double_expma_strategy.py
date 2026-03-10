@@ -16,6 +16,8 @@ from vnpy_ctastrategy import (
     ArrayManager,
 )
 
+import re
+
 
 class DoubleEXPMaStrategy(CtaTemplate):
     """"""
