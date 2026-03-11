@@ -20,7 +20,8 @@ from vnpy_ctastrategy import (
 
 import pandas_ta as ta
 
-
+import logging
+logging.basicConfig(level=logging.INFO)
 class DoubleZigzagStrategy(CtaTemplate):
     """"""
 
@@ -95,7 +96,10 @@ class DoubleZigzagStrategy(CtaTemplate):
         if not expiry_date:
             return
         # 合约交易第一天
-        begin_date: date = date(expiry_date.year - 1, month=expiry_date.month, day=expiry_date.day)
+        begin_date: date = date(
+            expiry_date.year - 1, 
+            month=expiry_date.month, 
+            day=expiry_date.day)
 
         # 开盘时间
         days_to_began = (bar.datetime.date() - begin_date).days
@@ -112,7 +116,11 @@ class DoubleZigzagStrategy(CtaTemplate):
             return
 
         # macd=diff,signal=dea,hist
-        macd, signal, hist = am.macd(fast_period=12, slow_period=26, signal_period=9, array=True)
+        macd, signal, hist = am.macd(
+            fast_period=12, 
+            slow_period=26, 
+            signal_period=9, 
+            array=True)
 
         # 波谷重合，按照序号顺序，交替出现，用于后门算法判断
         zigzag, max_index, min_index = self.getZigzag(legs=self.legs, period=self.period)
@@ -209,7 +217,7 @@ class DoubleZigzagStrategy(CtaTemplate):
                 print("max")
                 print(zigzag[zigzag[colName] == max_value])
                 print(zigzag[zigzag[colName] == max_value].index)
-                return zigzag, zigzag[zigzag[colName] == max_value].index, zigzag[zigzag[colName] == min_value].index
+                return zigzag, zigzag[zigzag[colName] == max_value].index[0], zigzag[zigzag[colName] == min_value].index[0]
             else:
                 return pd.DataFrame(), -1, -1
         except ZeroDivisionError as e: 
@@ -230,13 +238,21 @@ class DoubleZigzagStrategy(CtaTemplate):
     # type：波浪类型，1:表示上升波浪，2：表示下降波浪，0：表示其他波浪形态，-1：错误异常
     # joinpoint：入场点
     # stoppoint:止损点
-    def isJoin(self, zigzag: pd.DataFrame, current: float, max_index: int, min_index: int):
+    def isJoin(
+            self, 
+            zigzag: pd.DataFrame, 
+            current: float, 
+            max_index: int, 
+            min_index: int
+            ):
         row = zigzag.shape[0]
         if row < 5:
             print('Function isBuy zigzag exception.row={0}'.format(row))
-            return -1, 0, 0, None
+            return -1, 0, 0, 0
         
         # 上升波浪
+        print(zigzag.iat[row-1, 1])
+        print(zigzag.iat[row-3, 1])
         if  min_index > max_index and zigzag.index[row-3] == min_index and zigzag.iat[row-1, 0] < 0 and zigzag.iat[row-1, 1] > zigzag.iat[row-3, 1]: 
             x:float = zigzag.iat[row-3,1] - zigzag.iat[row-2,1]
             #F天
@@ -256,7 +272,7 @@ class DoubleZigzagStrategy(CtaTemplate):
             if  current < zigzag.iat[row-1, 1] - y:
                 return 2, current, stop_point, F
         # print("没有碰到目标形态。")
-        return 0, 0, 0, None
+        return 0, 0, 0, 0
 
     # 根据波形确定止损点
     def isStop(self, zigzag:pd.DataFrame, stoppoint, current, state):
