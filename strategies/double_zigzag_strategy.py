@@ -34,7 +34,7 @@ class DoubleZigzagStrategy(CtaTemplate):
     # 周期数量
     period: int = 30
     # zigzag的波峰长度
-    legs: int = 10
+    legs: int = 15
     # custom window
     custom_window: int = 15
 
@@ -53,8 +53,14 @@ class DoubleZigzagStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-
-        self.bg: BarGenerator = BarGenerator(self.on_bar)
+        print("========================================")
+        print('custom window:',self.custom_window)
+        print("========================================")
+        self.bg: BarGenerator = BarGenerator(
+            self.on_bar, 
+            window=self.custom_window, 
+            on_window_bar=self.on_15minute_bar
+            )
 
         self.am: ArrayManager = ArrayManager()
 
@@ -79,9 +85,13 @@ class DoubleZigzagStrategy(CtaTemplate):
         """
         Callback of new tick data update.
         """
+        print("on tick")
         self.bg.update_tick(tick)
 
     def on_bar(self, bar: BarData) -> None:
+        self.bg.update_bar(bar)
+
+    def on_15minute_bar(self, bar: BarData) -> None:
         """
         Callback of new bar data update.
         """
