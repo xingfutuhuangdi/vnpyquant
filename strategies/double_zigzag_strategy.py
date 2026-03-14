@@ -42,20 +42,20 @@ class DoubleZigzagStrategy(CtaTemplate):
     deviation: float = 0.1
 
     # 策略变量
+    #做多，止盈
+    breakpoint_buy: float = 0
     stoppoint_buy: float = 0
-    stoppoint_sell: float = 0
+    breakpoint_sell: float = 0
+    stoppoint_sell:float=0
 
     parameters = ["period", "legs", "deviation", "custom_window"]
-    variables = ["stoppoint_buy", "stoppoint_sell"]
+    variables = ["breakpoint_buy", "stoppoint_buy", "breakpoint_sell", "stoppoint_sell"]
 
     def on_init(self) -> None:
         """
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        print("========================================")
-        print('custom window:',self.custom_window)
-        print("========================================")
         self.bg: BarGenerator = BarGenerator(
             self.on_bar, 
             window=self.custom_window, 
@@ -64,7 +64,7 @@ class DoubleZigzagStrategy(CtaTemplate):
 
         self.am: ArrayManager = ArrayManager()
 
-        self.load_bar(self.period)
+        self.load_bar(10)
 
     def on_start(self) -> None:
         """
@@ -100,84 +100,79 @@ class DoubleZigzagStrategy(CtaTemplate):
         am.update_bar(bar)
         if not am.inited:
             return
+        try:
+            # 合约交易最后一天
+            expiry_date: date = self.infer_expiry_date(self.vt_symbol)
+            if not expiry_date:
+                return
+            # 合约交易第一天
+            begin_date: date = date(
+                expiry_date.year - 1, 
+                month=expiry_date.month, 
+                day=expiry_date.day)
 
-        # 合约交易最后一天
-        expiry_date: date = self.infer_expiry_date(self.vt_symbol)
-        if not expiry_date:
-            return
-        # 合约交易第一天
-        begin_date: date = date(
-            expiry_date.year - 1, 
-            month=expiry_date.month, 
-            day=expiry_date.day)
+            # 开盘时间
+            days_to_began = (bar.datetime.date() - begin_date).days
+            # 合约前期不活跃，不交易
+            if days_to_began < 60:
+                return
 
-        # 开盘时间
-        days_to_began = (bar.datetime.date() - begin_date).days
-        # 合约前期不活跃，不交易
-        if days_to_began < 60:
-            return
+            # 计算剩余天数
+            days_to_expiry = (expiry_date - bar.datetime.date()).days
+            # 合约到期的前7天，全部清仓
+            if days_to_expiry < 7:
+                # 接近到期时平仓
+                self.clearAll(bar.close_price)
+                return
 
-        # 计算剩余天数
-        days_to_expiry = (expiry_date - bar.datetime.date()).days
-        # 合约到期的前7天，全部清仓
-        if days_to_expiry < 7:
-            # 接近到期时平仓
-            self.clearAll(bar.close_price)
-            return
+            # macd=diff,signal=dea,hist
+            macd, signal, hist = am.macd(
+                fast_period=12, 
+                slow_period=26, 
+                signal_period=9, 
+                array=True)
 
-        # macd=diff,signal=dea,hist
-        macd, signal, hist = am.macd(
-            fast_period=12, 
-            slow_period=26, 
-            signal_period=9, 
-            array=True)
+            # 波谷重合，按照序号顺序，交替出现，用于后门算法判断
+            zigzag, max_index, min_index = self.getZigzag(legs=self.legs, period=self.period)
+            if zigzag.size == 0:
+                raise ValueError("zigzag is null")
+            # print(context.now)
+            dir, stop_loss, break_point, F = self.isJoin(zigzag, bar.close_price, max_index, min_index)
+            print("dir", dir)
+            print("pos", self.pos)
+            if dir == 1:
+                self.breakpoint_buy = break_point
+                self.stoppoint_buy = stop_loss
+            elif dir == 2:
+                self.breakpoint_sell = break_point
+                self.stoppoint_sell = stop_loss
+            elif dir == -1:
+                raise ValueError("zigzag length is too short!")
 
-        # 波谷重合，按照序号顺序，交替出现，用于后门算法判断
-        zigzag, max_index, min_index = self.getZigzag(legs=self.legs, period=self.period)
-        if zigzag.size == 0:
-            print("zigzag is null")
-            return 
-        # print(context.now)
-        dir, joinpoint, stoppoint, F = self.isJoin(zigzag, bar.close_price, max_index, min_index)
-        if dir == 1:
-            self.stoppoint_buy = stoppoint
-        elif dir == 2:
-            self.stoppoint_sell = stoppoint
-        
-        # 做多
-        is_positive = (dir == 1 and macd[-1] > 0)
-        # 做空
-        is_negative = (dir == 2 and macd[-1] < 0)
 
-        # 做多
-        if is_positive:
+            #操作
             if self.pos == 0:
-                self.buy(bar.close_price, self.vol)
-                self.stoploss_long = bar.close_price
+                #空仓
+                if bar.close_price > self.stoppoint_buy and bar.close_price < self.breakpoint_buy:
+                    self.buy(bar.close_price, self.vol)
+                elif bar.close_price < self.stoppoint_sell and bar.close_price > self.breakpoint_sell:
+                    self.short(bar.close_price, self.vol)
             elif self.pos < 0:
-                self.cover(bar.close_price, abs(self.pos))
-                self.buy(bar.close_price, self.vol)
-        # 做空
-        elif is_negative:
-            if self.pos == 0:
-                self.short(bar.close_price, self.vol)
-            elif self.pos > 0:
-                self.sell(bar.close_price, abs(self.pos))
-                self.short(bar.close_price, self.vol)
+                #做空
+                if bar.close_price > self.stoppoint_sell or bar.close_price < self.breakpoint_sell:
+                    self.cover(bar.close_price, abs(self.pos))
+            else:
+                #做多
+                if bar.close_price > self.stoppoint_buy and bar.close_price < self.breakpoint_buy:
+                    self.sell(bar.close_price, self.vol)
 
-        # 止盈
-        if self.pos > 0:
-            # 多仓止盈
-            state, self.stoppoint_buy = self.isStop(zigzag, self.stoppoint_buy, bar.close_price, 1)
-            if state == 1:
-                self.sell(bar.close_price, abs(self.pos))
-        elif self.pos < 0: 
-            # 空仓止盈
-            state, self.stoppoint_sell = self.isStop(zigzag, self.stoppoint_sell, bar.close_price, 2)
-            if state == 3: 
-                self.cover(bar.close_price, abs(self.pos))
+            self.put_event()
 
-        self.put_event()
+        except Exception as e:
+            print(e)
+        
+
+        
 
     def on_order(self, order: OrderData) -> None:
         """
@@ -216,7 +211,7 @@ class DoubleZigzagStrategy(CtaTemplate):
             
             if zigzag.empty == False and zigzag.size > 0: 
                 zigzag = zigzag.dropna()
-                print("zigzag", zigzag)
+                # print("zigzag", zigzag)
                 # print(zigzag.to_string())
                 # print(type(zigzag.index))
                 # print(zigzag.index[-1])
@@ -224,10 +219,18 @@ class DoubleZigzagStrategy(CtaTemplate):
                 colName = 'ZIGZAGv_{:.1f}%_{:d}'.format(self.deviation, legs)
                 max_value = zigzag[colName].max()
                 min_value = zigzag[colName].min()
-                print("max")
-                print(zigzag[zigzag[colName] == max_value])
-                print(zigzag[zigzag[colName] == max_value].index)
-                return zigzag, zigzag[zigzag[colName] == max_value].index[0], zigzag[zigzag[colName] == min_value].index[0]
+                max_index:int = 0
+                min_index:int = 0
+                
+                temp:pd.DataFrame = zigzag[zigzag[colName] == max_value]
+                if temp.empty == False and temp.size > 0:
+                    max_index = temp.index[0]
+                
+                temp1:pd.DataFrame = zigzag[zigzag[colName] == min_value]
+                if temp1.empty == False and temp.size > 0:
+                    min_index = temp1.index[0]
+
+                return zigzag, max_index, min_index
             else:
                 return pd.DataFrame(), -1, -1
         except ZeroDivisionError as e: 
@@ -255,61 +258,38 @@ class DoubleZigzagStrategy(CtaTemplate):
             max_index: int, 
             min_index: int
             ):
-        row = zigzag.shape[0]
-        if row < 5:
-            print('Function isBuy zigzag exception.row={0}'.format(row))
-            return -1, 0, 0, 0
-        
-        # 上升波浪
-        print(zigzag.iat[row-1, 1])
-        print(zigzag.iat[row-3, 1])
-        if  min_index > max_index and zigzag.index[row-3] == min_index and zigzag.iat[row-1, 0] < 0 and zigzag.iat[row-1, 1] > zigzag.iat[row-3, 1]: 
-            x:float = zigzag.iat[row-3,1] - zigzag.iat[row-2,1]
-            #F天
-            F:int = zigzag.index[row - 2] - zigzag.index[row - 3]
-            y:float = (zigzag.iat[row-1, 1] - zigzag.iat[row-2,1])/2
-            stop_point:float = zigzag.iat[row-1, 1] - x
-            if current > zigzag.iat[row-1, 1] - y:
-                return 1, current, stop_point, F
+        try:
+            row = zigzag.shape[0]
+            if row < 5:
+                print('Function isBuy zigzag exception.row={0}'.format(row))
+                return -1, 0, 0, 0
             
-        # 下降波浪
-        elif min_index < max_index and zigzag.index[row-3] == max_index and zigzag.iat[row-1, 0] > 0 and zigzag.iat[row-1, 1] < zigzag.iat[row-3, 1]: 
-            x:float = zigzag.iat[row-3, 1] - zigzag.iat[row-2, 1]
-            #F天
-            F:int = zigzag.index[row - 2] - zigzag.index[row - 3]
-            y:float = (zigzag.iat[row-1, 1] - zigzag.iat[row-2, 1])/2
-            stop_point:float = zigzag.iat[row-1, 1] - x
-            if  current < zigzag.iat[row-1, 1] - y:
-                return 2, current, stop_point, F
-        # print("没有碰到目标形态。")
-        return 0, 0, 0, 0
+            # 上升波浪
+            if  min_index > max_index and zigzag.index[row-3] == min_index and zigzag.iat[row-1, 0] < 0 and zigzag.iat[row-1, 1] > zigzag.iat[row-3, 1]: 
+                x:float = zigzag.iat[row-3,1] - zigzag.iat[row-2,1]
+                #F天
+                F:int = zigzag.index[row - 2] - zigzag.index[row - 3]
+                y:float = (zigzag.iat[row-1, 1] - zigzag.iat[row-2,1])/2
+                break_point:float = zigzag.iat[row-1, 1] - x
+                stop_loss:float = zigzag.iat[row-1, 1] - y
+                return 1, stop_loss, break_point, F
+                    
+                
+            # 下降波浪
+            elif min_index < max_index and zigzag.index[row-3] == max_index and zigzag.iat[row-1, 0] > 0 and zigzag.iat[row-1, 1] < zigzag.iat[row-3, 1]: 
+                x:float = zigzag.iat[row-3, 1] - zigzag.iat[row-2, 1]
+                #F天
+                F:int = zigzag.index[row - 2] - zigzag.index[row - 3]
+                y:float = (zigzag.iat[row-1, 1] - zigzag.iat[row-2, 1])/2
+                break_point:float = zigzag.iat[row-1, 1] - x
+                stop_loss:float = zigzag.iat[row-1, 1] - y
+                return 2, stop_loss, break_point, F
+                    
+            # print("没有碰到目标形态。")
+            return 0, 0, 0, 0
+        except Exception as e:
+            print(e)
 
-    # 根据波形确定止损点
-    def isStop(self, zigzag:pd.DataFrame, stoppoint, current, state):
-        row = zigzag.shape[0]
-
-        if row < 2:
-            print('Function isStop zigzag exception.row = '.format(row))
-            return -1, 0
-        # 做多
-        if state == 1:
-            if current > stoppoint:
-                print("做多止损，出场点：{0}，止损点：{1}".format(current,stoppoint))
-                return 1, None #多平
-            else:
-                # 打印
-                # print("继续做多，当前价格：{0}".format(current,stoppoint))
-                return 2, stoppoint
-        
-        # 做空
-        elif state == 2:                
-            if current < stoppoint:
-                print("做空止损，出场点：{0}，止损点：{1}".format(current,stoppoint))
-                return 3, None #空平
-            else:
-                #打印
-                # print("继续做空，当前价格：{0}".format(current,stoppoint))
-                return 4,stoppoint
     
     # 只能算一个大概
     def infer_expiry_date(self, symbol):
