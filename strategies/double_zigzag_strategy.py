@@ -32,11 +32,11 @@ class DoubleZigzagStrategy(CtaTemplate):
     # 交易量
     vol: int = 10
     # 周期数量
-    period: int = 30
+    period: int = 600
     # zigzag的波峰长度
-    legs: int = 15
+    legs: int = 20
     # custom window
-    custom_window: int = 15
+    custom_window: int = 30
 
     # 计算 ZigZag 指标（默认偏差为 5%，10 段）
     deviation: float = 0.1
@@ -48,8 +48,17 @@ class DoubleZigzagStrategy(CtaTemplate):
     breakpoint_sell: float = 0
     stoppoint_sell:float=0
 
-    parameters = ["period", "legs", "deviation", "custom_window"]
-    variables = ["breakpoint_buy", "stoppoint_buy", "breakpoint_sell", "stoppoint_sell"]
+    parameters = ["period", 
+                  "legs", 
+                  "deviation", 
+                  "custom_window"
+                  ]
+    
+    variables = ["breakpoint_buy", 
+                 "stoppoint_buy", 
+                 "breakpoint_sell", 
+                 "stoppoint_sell"
+                 ]
 
     def on_init(self) -> None:
         """
@@ -126,32 +135,34 @@ class DoubleZigzagStrategy(CtaTemplate):
                 return
 
             # macd=diff,signal=dea,hist
-            macd, signal, hist = am.macd(
-                fast_period=12, 
-                slow_period=26, 
-                signal_period=9, 
-                array=True)
+            # macd, signal, hist = am.macd(
+            #     fast_period=12, 
+            #     slow_period=26, 
+            #     signal_period=9, 
+            #     array=True)
 
-            # 波谷重合，按照序号顺序，交替出现，用于后门算法判断
-            zigzag, max_index, min_index = self.getZigzag(legs=self.legs, period=self.period)
-            if zigzag.size == 0:
-                raise ValueError("zigzag is null")
-            # print(context.now)
-            dir, stop_loss, break_point, F = self.isJoin(zigzag, bar.close_price, max_index, min_index)
-            print("dir", dir)
-            print("pos", self.pos)
-            if dir == 1:
-                self.breakpoint_buy = break_point
-                self.stoppoint_buy = stop_loss
-            elif dir == 2:
-                self.breakpoint_sell = break_point
-                self.stoppoint_sell = stop_loss
-            elif dir == -1:
-                raise ValueError("zigzag length is too short!")
 
 
             #操作
             if self.pos == 0:
+                
+                # 波谷重合，按照序号顺序，交替出现，用于后门算法判断
+                zigzag, max_index, min_index = self.getZigzag(legs=self.legs, period=self.period)
+                if zigzag.size == 0:
+                    return
+                # print(context.now)
+                dir, stop_loss, break_point, F = self.isJoin(zigzag, bar.close_price, max_index, min_index)
+                print("dir", dir)
+                print("pos", self.pos)
+                if dir == 1:
+                    self.breakpoint_buy = break_point
+                    self.stoppoint_buy = stop_loss
+                elif dir == 2:
+                    self.breakpoint_sell = break_point
+                    self.stoppoint_sell = stop_loss
+                elif dir == -1:
+                    return
+                
                 #空仓
                 if bar.close_price > self.stoppoint_buy and bar.close_price < self.breakpoint_buy:
                     self.buy(bar.close_price, self.vol)
