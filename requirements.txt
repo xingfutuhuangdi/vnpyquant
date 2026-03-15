@@ -1,0 +1,8 @@
+numpy==2.4.3
+pandas==3.0.1
+pandas_ta==0.4.71b0
+vnpy==4.3.0
+vnpy_ctabacktester==1.3.0
+vnpy_ctastrategy==1.4.1
+vnpy_ctp==6.7.11.3
+vnpy_datamanager==1.2.0
